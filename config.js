@@ -89,6 +89,8 @@ const CONFIG = {
     appKey: "",
     title: "원범희 ♥ 김현진 결혼합니다",
     description: "2026년 8월 22일 토요일 오후 5시 20분\n위더스 안양",
+    image: "https://hjin1028kim.github.io/my-wedding/images/og/wedding_main.jpg",
+    imageUrl: "https://hjin1028kim.github.io/my-wedding/images/og/wedding_main.jpg",
   },
 
   meta: {
