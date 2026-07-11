@@ -516,18 +516,26 @@
   let touchEndX = 0;
   let touchStartY = 0;
   let touchEndY = 0;
-
+  let savedScrollY = 0; // ← 추가: 모달 열기 전 스크롤 위치 저장용
+  
   function openPhotoModal(images, index) {
     modalImages = images;
     modalIndex = index;
     showModalImage();
+
+    savedScrollY = window.scrollY; // ← 현재 스크롤 위치 저장
+    
     $('#photoModal').classList.add('is-open');
     document.body.classList.add('no-scroll');
+    document.body.style.top = `-${savedScrollY}px`; // ← body 고정 위치를 현재 스크롤로 맞춤
   }
 
   function closePhotoModal() {
     $('#photoModal').classList.remove('is-open');
     document.body.classList.remove('no-scroll');
+    document.body.style.top = ''; // ← 고정 스타일 제거
+
+  window.scrollTo(0, savedScrollY); // ← 원래 위치로 복귀
   }
 
   function showModalImage() {
