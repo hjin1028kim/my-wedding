@@ -353,16 +353,23 @@ a {
   align-items: center;
   justify-content: center;
   padding: 3.5rem 2.5rem;
-  touch-action: pan-y;
+  touch-action: none; /* 핀치줌/팬을 JS로 직접 제어하기 위함 */
   user-select: none;
   -webkit-user-select: none;
+  overflow: hidden;
 }
 
 .photo-modal__img {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  transition: transform 0.3s ease;
+  transition: transform 0.25s ease;
+  cursor: zoom-in;
+  touch-action: none;
+}
+
+.photo-modal__img.is-zoomed {
+  cursor: grab;
 }
 
 .photo-modal__counter {
