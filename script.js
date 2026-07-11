@@ -506,36 +506,65 @@
     });
   }
 
-  /* ═══════════════════════════════════════════
-     Photo Modal (with swipe)
+/* ═══════════════════════════════════════════
+     Photo Modal (with swipe + zoom)
      ═══════════════════════════════════════════ */
 
   let modalImages = [];
   let modalIndex = 0;
+  let savedScrollY = 0;
+
+  // Zoom / pan state
+  let currentScale = 1;
+  let currentTranslateX = 0;
+  let currentTranslateY = 0;
+  const MIN_SCALE = 1;
+  const MAX_SCALE = 4;
+  const DOUBLE_TAP_SCALE = 2.5;
+
   let touchStartX = 0;
-  let touchEndX = 0;
   let touchStartY = 0;
+  let touchEndX = 0;
   let touchEndY = 0;
-  let savedScrollY = 0; // ← 추가: 모달 열기 전 스크롤 위치 저장용
-  
+
+  let isPinching = false;
+  let pinchStartDistance = 0;
+  let pinchStartScale = 1;
+
+  let isPanning = false;
+  let panStartX = 0;
+  let panStartY = 0;
+  let panOriginX = 0;
+  let panOriginY = 0;
+
+  let lastTapTime = 0;
+  let lastTapX = 0;
+  let lastTapY = 0;
+
+  let isMouseDown = false;
+  let mouseStartX = 0;
+  let mouseStartY = 0;
+  let mouseOriginX = 0;
+  let mouseOriginY = 0;
+
   function openPhotoModal(images, index) {
     modalImages = images;
     modalIndex = index;
     showModalImage();
 
-    savedScrollY = window.scrollY; // ← 현재 스크롤 위치 저장
-    
+    savedScrollY = window.scrollY;
+
     $('#photoModal').classList.add('is-open');
     document.body.classList.add('no-scroll');
-    document.body.style.top = `-${savedScrollY}px`; // ← body 고정 위치를 현재 스크롤로 맞춤
+    document.body.style.top = `-${savedScrollY}px`;
   }
 
   function closePhotoModal() {
     $('#photoModal').classList.remove('is-open');
     document.body.classList.remove('no-scroll');
-    document.body.style.top = ''; // ← 고정 스타일 제거
+    document.body.style.top = '';
 
-  window.scrollTo(0, savedScrollY); // ← 원래 위치로 복귀
+    window.scrollTo(0, savedScrollY);
   }
 
   function showModalImage() {
@@ -545,14 +574,61 @@
 
     $('#modalPrev').style.display = modalIndex > 0 ? '' : 'none';
     $('#modalNext').style.display = modalIndex < modalImages.length - 1 ? '' : 'none';
+
+    resetZoom();
   }
 
   function modalNavigate(dir) {
+    if (currentScale > 1) return; // 확대 중에는 넘기기 방지
     const newIndex = modalIndex + dir;
     if (newIndex >= 0 && newIndex < modalImages.length) {
       modalIndex = newIndex;
       showModalImage();
     }
+  }
+
+  /* ─── Zoom helpers ─── */
+
+  function applyTransform(animate) {
+    const img = $('#modalImg');
+    img.style.transition = animate ? 'transform 0.25s ease' : 'none';
+    img.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px) scale(${currentScale})`;
+  }
+
+  function clampTranslate() {
+    const img = $('#modalImg');
+    const maxX = Math.max(0, (img.offsetWidth * (currentScale - 1)) / 2);
+    const maxY = Math.max(0, (img.offsetHeight * (currentScale - 1)) / 2);
+    currentTranslateX = Math.min(maxX, Math.max(-maxX, currentTranslateX));
+    currentTranslateY = Math.min(maxY, Math.max(-maxY, currentTranslateY));
+  }
+
+  function resetZoom() {
+    currentScale = 1;
+    currentTranslateX = 0;
+    currentTranslateY = 0;
+    applyTransform(false);
+    $('#modalImg').classList.remove('is-zoomed');
+    $('#modalImg').style.cursor = 'zoom-in';
+  }
+
+  function toggleZoom() {
+    if (currentScale > 1) {
+      resetZoom();
+    } else {
+      currentScale = DOUBLE_TAP_SCALE;
+      currentTranslateX = 0;
+      currentTranslateY = 0;
+      applyTransform(true);
+      $('#modalImg').classList.add('is-zoomed');
+      $('#modalImg').style.cursor = 'grab';
+    }
+  }
+
+  function getDistance(t1, t2) {
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
   }
 
   function initPhotoModal() {
@@ -562,12 +638,12 @@
 
     const modal = $('#photoModal');
     modal.addEventListener('click', (e) => {
+      if (currentScale > 1) return; // 확대 중 바깥 클릭으로 닫히지 않게
       if (e.target === modal || e.target.id === 'modalContainer') {
         closePhotoModal();
       }
     });
 
-    // Keyboard navigation
     document.addEventListener('keydown', (e) => {
       if (!modal.classList.contains('is-open')) return;
       if (e.key === 'Escape') closePhotoModal();
@@ -575,19 +651,120 @@
       if (e.key === 'ArrowRight') modalNavigate(1);
     });
 
-    // Swipe support
     const container = $('#modalContainer');
+    const img = $('#modalImg');
+
+    /* ── Touch: pinch zoom / pan / swipe / double-tap ── */
 
     container.addEventListener('touchstart', (e) => {
-      touchStartX = e.changedTouches[0].screenX;
-      touchStartY = e.changedTouches[0].screenY;
+      if (e.touches.length === 2) {
+        isPinching = true;
+        isPanning = false;
+        pinchStartDistance = getDistance(e.touches[0], e.touches[1]);
+        pinchStartScale = currentScale;
+      } else if (e.touches.length === 1) {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+
+        if (currentScale > 1) {
+          isPanning = true;
+          panStartX = e.touches[0].clientX;
+          panStartY = e.touches[0].clientY;
+          panOriginX = currentTranslateX;
+          panOriginY = currentTranslateY;
+        }
+
+        const now = Date.now();
+        const tapDist = Math.hypot(
+          e.touches[0].clientX - lastTapX,
+          e.touches[0].clientY - lastTapY
+        );
+        if (now - lastTapTime < 300 && tapDist < 30) {
+          toggleZoom();
+          lastTapTime = 0;
+        } else {
+          lastTapTime = now;
+          lastTapX = e.touches[0].clientX;
+          lastTapY = e.touches[0].clientY;
+        }
+      }
+    }, { passive: true });
+
+    container.addEventListener('touchmove', (e) => {
+      if (isPinching && e.touches.length === 2) {
+        const dist = getDistance(e.touches[0], e.touches[1]);
+        currentScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, pinchStartScale * (dist / pinchStartDistance)));
+        clampTranslate();
+        applyTransform(false);
+        img.classList.toggle('is-zoomed', currentScale > 1);
+      } else if (isPanning && e.touches.length === 1) {
+        currentTranslateX = panOriginX + (e.touches[0].clientX - panStartX);
+        currentTranslateY = panOriginY + (e.touches[0].clientY - panStartY);
+        clampTranslate();
+        applyTransform(false);
+      }
     }, { passive: true });
 
     container.addEventListener('touchend', (e) => {
-      touchEndX = e.changedTouches[0].screenX;
-      touchEndY = e.changedTouches[0].screenY;
-      handleSwipe();
+      if (e.touches.length < 2) isPinching = false;
+
+      if (e.touches.length === 0) {
+        if (isPanning) {
+          isPanning = false;
+          return;
+        }
+        if (currentScale === 1 && e.changedTouches.length === 1) {
+          touchEndX = e.changedTouches[0].clientX;
+          touchEndY = e.changedTouches[0].clientY;
+          handleSwipe();
+        }
+        if (currentScale < 1.05 && currentScale !== 1) resetZoom();
+        else img.style.cursor = currentScale > 1 ? 'grab' : 'zoom-in';
+      }
     }, { passive: true });
+
+    /* ── Desktop: double-click zoom, wheel zoom, drag pan ── */
+
+    img.addEventListener('dblclick', () => toggleZoom());
+
+    img.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.3 : 0.3;
+      currentScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, currentScale + delta));
+      clampTranslate();
+      applyTransform(false);
+      if (currentScale <= 1) {
+        resetZoom();
+      } else {
+        img.classList.add('is-zoomed');
+        img.style.cursor = 'grab';
+      }
+    }, { passive: false });
+
+    img.addEventListener('mousedown', (e) => {
+      if (currentScale <= 1) return;
+      e.preventDefault();
+      isMouseDown = true;
+      mouseStartX = e.clientX;
+      mouseStartY = e.clientY;
+      mouseOriginX = currentTranslateX;
+      mouseOriginY = currentTranslateY;
+      img.style.cursor = 'grabbing';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isMouseDown) return;
+      currentTranslateX = mouseOriginX + (e.clientX - mouseStartX);
+      currentTranslateY = mouseOriginY + (e.clientY - mouseStartY);
+      clampTranslate();
+      applyTransform(false);
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!isMouseDown) return;
+      isMouseDown = false;
+      img.style.cursor = currentScale > 1 ? 'grab' : 'zoom-in';
+    });
   }
 
   function handleSwipe() {
@@ -598,9 +775,9 @@
     if (Math.abs(diffX) < minSwipe || Math.abs(diffX) < Math.abs(diffY)) return;
 
     if (diffX > 0) {
-      modalNavigate(1);  // swipe left -> next
+      modalNavigate(1);
     } else {
-      modalNavigate(-1); // swipe right -> prev
+      modalNavigate(-1);
     }
   }
 
